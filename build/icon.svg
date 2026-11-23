@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="80" x2="904" y2="944" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E2235" />
+      <stop offset="55%" stop-color="#141724" />
+      <stop offset="100%" stop-color="#0E1019" />
+    </linearGradient>
+    <linearGradient id="glow" x1="200" y1="120" x2="820" y2="860" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6366F1" stop-opacity="0.32" />
+      <stop offset="100%" stop-color="#818CF8" stop-opacity="0.04" />
+    </linearGradient>
+    <linearGradient id="sheet" x1="310" y1="220" x2="730" y2="800" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#EEF2FF" />
+    </linearGradient>
+    <linearGradient id="accent" x1="360" y1="300" x2="640" y2="700" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4F46E5" />
+      <stop offset="100%" stop-color="#6366F1" />
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="135%">
+      <feDropShadow dx="0" dy="22" stdDeviation="28" flood-color="#05070D" flood-opacity="0.55" />
+    </filter>
+  </defs>
+
+  <!-- macOS Rounded Squircle Container (standard 100px safe margin) -->
+  <rect x="96" y="96" width="832" height="832" rx="188" fill="url(#bg)" />
+  <rect x="96" y="96" width="832" height="832" rx="188" fill="url(#glow)" />
+  <rect x="98" y="98" width="828" height="828" rx="186" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="4" />
+
+  <!-- Subtle Page Sheet Silhouette -->
+  <g filter="url(#shadow)">
+    <path d="M316 232 H616 L712 328 V760 C712 782 694 800 672 800 H316 C294 800 276 782 276 760 V272 C276 250 294 232 316 232 Z" fill="url(#sheet)" />
+    <!-- Folded Corner -->
+    <path d="M616 232 V304 C616 317 627 328 640 328 H712 Z" fill="#C7D2FE" />
+  </g>
+
+  <!-- Refined Editorial "L" Monogram + Markdown Cursor Accent -->
+  <g fill="url(#accent)">
+    <!-- Vertical stem of L -->
+    <rect x="378" y="344" width="66" height="328" rx="16" />
+    <!-- Horizontal foot of L -->
+    <rect x="378" y="610" width="236" height="62" rx="16" />
+  </g>
+
+  <!-- Subtle Markdown / LaTeX Document Lines -->
+  <rect x="492" y="396" width="134" height="22" rx="11" fill="#A5B4FC" />
+  <rect x="492" y="448" width="96" height="22" rx="11" fill="#C7D2FE" />
+  <circle cx="624" cy="459" r="11" fill="#6366F1" />
+</svg>
