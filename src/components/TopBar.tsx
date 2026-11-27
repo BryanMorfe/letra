@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  BookOpen,
+  ChevronDown,
   Code2,
   Columns2,
   Download,
@@ -8,15 +8,24 @@ import {
   FileCode2,
   FileDown,
   FilePlus2,
+  FileText,
   FolderOpen,
   ImagePlus,
   Monitor,
   Moon,
+  Package,
   PanelLeft,
   Save,
+  SlidersHorizontal,
   Sun,
 } from 'lucide-react';
-import type { PreviewMode, ThemeMode, ViewMode } from '../../shared/types';
+import type {
+  CanvasMode,
+  PageSettings,
+  ThemeMode,
+  ViewMode,
+} from '../../shared/types';
+import { PreviewSettingsPopover } from './PreviewSettingsPopover';
 
 interface TopBarProps {
   isMac: boolean;
@@ -24,14 +33,23 @@ interface TopBarProps {
   onToggleSidebar: () => void;
   viewMode: ViewMode;
   onChangeViewMode: (mode: ViewMode) => void;
-  previewMode: PreviewMode;
-  onTogglePreviewMode: () => void;
+  canvasMode: CanvasMode;
+  onChangeCanvasMode: (mode: CanvasMode) => void;
+  pageSettings: PageSettings;
+  onChangePageSettings: (next: PageSettings) => void;
+  previewSettingsOpen: boolean;
+  onSetPreviewSettingsOpen: (open: boolean) => void;
+  forceWhitePaper: boolean;
+  onToggleForceWhitePaper: (val: boolean) => void;
+  isDarkTheme: boolean;
   themeMode: ThemeMode;
   onChangeThemeMode: (mode: ThemeMode) => void;
   isDirty: boolean;
   onNewFile: () => void;
   onOpenFile: () => void;
   onSaveFile: () => void;
+  onSaveAsMarkdown: () => void;
+  onSaveAsLetra: () => void;
   onImportAsset: () => void;
   onExportPdf: () => void;
   onExportHtml: () => void;
@@ -44,26 +62,44 @@ export const TopBar: React.FC<TopBarProps> = ({
   onToggleSidebar,
   viewMode,
   onChangeViewMode,
-  previewMode,
-  onTogglePreviewMode,
+  canvasMode,
+  onChangeCanvasMode,
+  pageSettings,
+  onChangePageSettings,
+  previewSettingsOpen,
+  onSetPreviewSettingsOpen,
+  forceWhitePaper,
+  onToggleForceWhitePaper,
+  isDarkTheme,
   themeMode,
   onChangeThemeMode,
   isDirty,
   onNewFile,
   onOpenFile,
   onSaveFile,
+  onSaveAsMarkdown,
+  onSaveAsLetra,
   onImportAsset,
   onExportPdf,
   onExportHtml,
   exporting,
 }) => {
+  const [saveMenuOpen, setSaveMenuOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const saveRef = useRef<HTMLDivElement>(null);
+  const previewSettingsRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const themeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
+      if (saveRef.current && !saveRef.current.contains(e.target as Node)) {
+        setSaveMenuOpen(false);
+      }
+      if (previewSettingsRef.current && !previewSettingsRef.current.contains(e.target as Node)) {
+        onSetPreviewSettingsOpen(false);
+      }
       if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
         setExportMenuOpen(false);
       }
@@ -71,9 +107,21 @@ export const TopBar: React.FC<TopBarProps> = ({
         setThemeMenuOpen(false);
       }
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSaveMenuOpen(false);
+        onSetPreviewSettingsOpen(false);
+        setExportMenuOpen(false);
+        setThemeMenuOpen(false);
+      }
+    };
     window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, []);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onSetPreviewSettingsOpen]);
 
   const ThemeIcon = themeMode === 'dark' ? Moon : themeMode === 'light' ? Sun : Monitor;
 
@@ -111,28 +159,87 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         <button
           type="button"
-          title="Open File (⌘/Ctrl + O)"
+          title="Open .md or .letra File (⌘/Ctrl + O)"
           onClick={onOpenFile}
           className="p-1.5 rounded-lg text-[var(--letra-muted)] hover:text-[var(--letra-fg)] hover:bg-[var(--letra-hover)] transition-colors cursor-pointer"
         >
           <FolderOpen className="w-4 h-4" />
         </button>
 
-        <button
-          type="button"
-          title="Save (⌘/Ctrl + S)"
-          onClick={onSaveFile}
-          className={`relative p-1.5 rounded-lg transition-colors cursor-pointer ${
-            isDirty
-              ? 'text-indigo-500 hover:bg-indigo-500/10'
-              : 'text-[var(--letra-muted)] hover:text-[var(--letra-fg)] hover:bg-[var(--letra-hover)]'
-          }`}
-        >
-          <Save className="w-4 h-4" />
-          {isDirty && (
-            <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+        {/* Save + Format Dropdown (.md / .letra) */}
+        <div ref={saveRef} className="relative flex items-center">
+          <button
+            type="button"
+            title="Save (⌘/Ctrl + S)"
+            onClick={onSaveFile}
+            className={`relative p-1.5 rounded-l-lg transition-colors cursor-pointer ${
+              isDirty
+                ? 'text-indigo-500 hover:bg-indigo-500/10'
+                : 'text-[var(--letra-muted)] hover:text-[var(--letra-fg)] hover:bg-[var(--letra-hover)]'
+            }`}
+          >
+            <Save className="w-4 h-4" />
+            {isDirty && (
+              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+            )}
+          </button>
+          <button
+            type="button"
+            title="Save Options (.md or .letra)"
+            aria-label="Save format options"
+            onClick={() => setSaveMenuOpen((v) => !v)}
+            className="px-0.5 py-1.5 rounded-r-lg text-[var(--letra-muted)] hover:text-[var(--letra-fg)] hover:bg-[var(--letra-hover)] transition-colors cursor-pointer"
+          >
+            <ChevronDown className="w-3 h-3" />
+          </button>
+
+          {saveMenuOpen && (
+            <div className="absolute left-0 top-9 z-50 w-56 rounded-xl border border-[var(--letra-border)] bg-[var(--letra-elevated)] shadow-xl p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setSaveMenuOpen(false);
+                  onSaveFile();
+                }}
+                className="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-xs text-left text-[var(--letra-fg)] hover:bg-[var(--letra-hover)] cursor-pointer"
+              >
+                <Save className="w-3.5 h-3.5 text-[var(--letra-muted)]" />
+                <div>
+                  <div className="font-medium">Save</div>
+                  <div className="text-[10px] text-[var(--letra-muted)]">Save current document</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSaveMenuOpen(false);
+                  onSaveAsMarkdown();
+                }}
+                className="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-xs text-left text-[var(--letra-fg)] hover:bg-[var(--letra-hover)] cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5 text-sky-500" />
+                <div>
+                  <div className="font-medium">Save As Markdown (.md)…</div>
+                  <div className="text-[10px] text-[var(--letra-muted)]">Plain .md + ./assets/ folder</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSaveMenuOpen(false);
+                  onSaveAsLetra();
+                }}
+                className="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-xs text-left text-[var(--letra-fg)] hover:bg-[var(--letra-hover)] cursor-pointer"
+              >
+                <Package className="w-3.5 h-3.5 text-indigo-500" />
+                <div>
+                  <div className="font-medium">Save As .letra Package…</div>
+                  <div className="text-[10px] text-[var(--letra-muted)]">Self-contained ZIP with assets</div>
+                </div>
+              </button>
+            </div>
           )}
-        </button>
+        </div>
       </div>
 
       {/* Center Cluster: View Mode Segmented Switcher */}
@@ -165,22 +272,39 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       </div>
 
-      {/* Right Cluster: Page Mode, Import Asset, Export, Theme */}
+      {/* Right Cluster: Preview Settings, Import Asset, Export, Theme */}
       <div className="flex items-center justify-end gap-1.5 letra-no-drag">
         {viewMode !== 'raw' && (
-          <button
-            type="button"
-            title="Toggle Print-Ready Page Mode (⌘/Ctrl + Shift + P)"
-            onClick={onTogglePreviewMode}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
-              previewMode === 'page'
-                ? 'border-indigo-500/50 bg-indigo-500/12 text-indigo-500'
-                : 'border-[var(--letra-border)] text-[var(--letra-muted)] hover:text-[var(--letra-fg)] hover:bg-[var(--letra-hover)]'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Page Mode</span>
-          </button>
+          <div ref={previewSettingsRef} className="relative">
+            <button
+              type="button"
+              title="Preview Settings (⌘/Ctrl + Shift + P)"
+              onClick={() => onSetPreviewSettingsOpen(!previewSettingsOpen)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer whitespace-nowrap ${
+                previewSettingsOpen || canvasMode === 'page'
+                  ? 'border-indigo-500/50 bg-indigo-500/12 text-indigo-500'
+                  : 'border-[var(--letra-border)] text-[var(--letra-muted)] hover:text-[var(--letra-fg)] hover:bg-[var(--letra-hover)]'
+              }`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden md:inline">Preview Settings</span>
+            </button>
+
+            {previewSettingsOpen && (
+              <div className="absolute right-0 top-9 z-50">
+                <PreviewSettingsPopover
+                  canvasMode={canvasMode}
+                  onChangeCanvasMode={onChangeCanvasMode}
+                  settings={pageSettings}
+                  onChangeSettings={onChangePageSettings}
+                  forceWhitePaper={forceWhitePaper}
+                  onToggleForceWhitePaper={onToggleForceWhitePaper}
+                  isDarkTheme={isDarkTheme}
+                  onClose={() => onSetPreviewSettingsOpen(false)}
+                />
+              </div>
+            )}
+          </div>
         )}
 
         <button
@@ -218,7 +342,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 <FileDown className="w-3.5 h-3.5 text-indigo-500" />
                 <div>
                   <div className="font-medium">Export as PDF…</div>
-                  <div className="text-[10px] text-[var(--letra-muted)]">Honors Page Mode layout</div>
+                  <div className="text-[10px] text-[var(--letra-muted)]">Honors Page settings</div>
                 </div>
               </button>
               <button

@@ -50,21 +50,16 @@ function loadKatexCss(inlineFontsAsFileUrls: boolean): string {
 
 function getTypographyFontStack(style: TypographyStyle): { body: string; heading: string } {
   switch (style) {
-    case 'serif':
-      return {
-        body: "'Iowan Old Style', 'Charter', 'Georgia', 'Times New Roman', serif",
-        heading: "'Iowan Old Style', 'Charter', 'Georgia', serif",
-      };
     case 'sans':
       return {
         body: "-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif",
         heading: "-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif",
       };
-    case 'editorial':
+    case 'serif':
     default:
       return {
-        body: "-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif",
-        heading: "'Iowan Old Style', 'Georgia', -apple-system, serif",
+        body: "'Iowan Old Style', 'Charter', 'Georgia', 'Times New Roman', serif",
+        heading: "'Iowan Old Style', 'Charter', 'Georgia', 'Times New Roman', serif",
       };
   }
 }
@@ -72,6 +67,7 @@ function getTypographyFontStack(style: TypographyStyle): { body: string; heading
 function buildDocumentCss(
   theme: ResolvedTheme,
   typography: TypographyStyle,
+  headingDividers: boolean,
   fontSizePx: number,
   isPrint: boolean
 ): string {
@@ -112,8 +108,8 @@ function buildDocumentCss(
       break-after: avoid;
       page-break-after: avoid;
     }
-    .letra-prose h1 { font-size: 2.05em; margin-top: 0; padding-bottom: 0.3em; border-bottom: 1px solid ${border}; }
-    .letra-prose h2 { font-size: 1.5em; padding-bottom: 0.22em; border-bottom: 1px solid ${border}; }
+    .letra-prose h1 { font-size: 2.05em; margin-top: 0; ${headingDividers ? `padding-bottom: 0.3em; border-bottom: 1px solid ${border};` : ''} }
+    .letra-prose h2 { font-size: 1.5em; ${headingDividers ? `padding-bottom: 0.22em; border-bottom: 1px solid ${border};` : ''} }
     .letra-prose h3 { font-size: 1.22em; }
     .letra-prose h4 { font-size: 1.05em; }
     .letra-prose p { margin: 0 0 0.95em 0; }
@@ -326,6 +322,7 @@ export async function exportDocumentToPdf(
   const docCss = buildDocumentCss(
     'light',
     req.pageSettings.typography,
+    req.pageSettings.headingDividers,
     req.pageSettings.fontSizePx,
     true
   );
@@ -456,13 +453,14 @@ export async function exportDocumentToHtml(
     const docCss = buildDocumentCss(
       req.theme,
       req.pageSettings.typography,
+      req.pageSettings.headingDividers,
       req.pageSettings.fontSizePx,
       false
     );
     const isDark = req.theme === 'dark';
 
     const containerStyle =
-      req.previewMode === 'page'
+      req.canvasMode === 'page'
         ? `
           body { background: ${isDark ? '#0e1014' : '#eef0f4'}; padding: 36px 20px; }
           .letra-export-sheet {

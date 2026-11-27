@@ -8,6 +8,7 @@ import {
   FolderOpen,
   FolderPlus,
   ListTree,
+  Package,
   RefreshCw,
   Trash2,
 } from 'lucide-react';
@@ -71,7 +72,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const renderNode = (node: FileTreeNode, depth: number) => {
     const isExpanded = Boolean(expandedDirs[node.path]);
     const isActive = activeFilePath === node.path;
-    const isMarkdown = /\.(md|markdown|mdx|txt)$/i.test(node.name);
+    const isLetra = /\.letra$/i.test(node.name);
+    const isEditableDoc = isLetra || /\.(md|markdown|mdx|txt)$/i.test(node.name);
 
     return (
       <div key={node.path}>
@@ -79,13 +81,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => {
             if (node.isDirectory) {
               toggleDir(node.path);
-            } else if (isMarkdown) {
+            } else if (isEditableDoc) {
               onOpenFileFromTree(node.path);
             }
           }}
           style={{ paddingLeft: `${10 + depth * 14}px` }}
           className={`group flex items-center justify-between pr-2 py-1 rounded-md text-xs transition-colors select-none ${
-            node.isDirectory || isMarkdown ? 'cursor-pointer' : 'opacity-50 cursor-default'
+            node.isDirectory || isEditableDoc ? 'cursor-pointer' : 'opacity-50 cursor-default'
           } ${
             isActive
               ? 'bg-indigo-500/12 text-indigo-500 font-medium'
@@ -109,7 +111,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             ) : (
               <>
                 <span className="w-3.5 shrink-0" />
-                <FileText className="w-3.5 h-3.5 text-[var(--letra-muted)] shrink-0" />
+                {isLetra ? (
+                  <Package className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                ) : (
+                  <FileText className="w-3.5 h-3.5 text-[var(--letra-muted)] shrink-0" />
+                )}
               </>
             )}
             <span className="truncate">{node.name}</span>
@@ -219,7 +225,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     onBlur={() => setCreatingKind(null)}
-                    placeholder={creatingKind === 'file' ? 'notes.md' : 'folder-name'}
+                    placeholder={creatingKind === 'file' ? 'notes.md or doc.letra' : 'folder-name'}
                     className="w-full px-2 py-1 text-xs rounded-md border border-indigo-500 bg-[var(--letra-input-bg)] text-[var(--letra-fg)] focus:outline-none"
                   />
                 </form>

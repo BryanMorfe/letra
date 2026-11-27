@@ -1,6 +1,6 @@
 {
   "name": "letra",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Letra — Elegant Markdown Editor with LaTeX, Diagrams, and Print-Ready Page Mode",
   "author": "Bryan Morfe",
   "homepage": "https://github.com/BryanMorfe/letra",
@@ -35,6 +35,7 @@
     "@lezer/highlight": "^1.2.1",
     "dompurify": "^3.2.5",
     "highlight.js": "^11.11.1",
+    "jszip": "^3.10.2",
     "katex": "^0.16.22",
     "lucide-react": "^0.511.0",
     "mermaid": "^11.6.0",
@@ -87,13 +88,27 @@
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "darkModeSupport": true,
       "identity": null
     },
     "fileAssociations": [
       {
-        "ext": ["md", "markdown", "mdx"],
+        "ext": [
+          "letra"
+        ],
+        "name": "Letra Document Package",
+        "role": "Editor"
+      },
+      {
+        "ext": [
+          "md",
+          "markdown",
+          "mdx"
+        ],
         "name": "Markdown Document",
         "role": "Editor"
       }
@@ -102,7 +117,10 @@
       "category": "Office",
       "icon": "build/icon.png",
       "maintainer": "Bryan Morfe <BryanMorfe@users.noreply.github.com>",
-      "target": ["AppImage", "deb"]
+      "target": [
+        "AppImage",
+        "deb"
+      ]
     }
   }
 }

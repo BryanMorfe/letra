@@ -1,6 +1,11 @@
 import React from 'react';
-import { FolderArchive, Link2, Lock } from 'lucide-react';
-import type { AssetStorageMode, PreviewMode, ViewMode } from '../../shared/types';
+import { FolderArchive, Link2, Lock, Package } from 'lucide-react';
+import {
+  isLetraArchivePath,
+  type AssetStorageMode,
+  type CanvasMode,
+  type ViewMode,
+} from '../../shared/types';
 
 interface StatusBarProps {
   filePath: string | null;
@@ -8,7 +13,7 @@ interface StatusBarProps {
   charCount: number;
   readingTimeMin: number;
   pageCount: number;
-  previewMode: PreviewMode;
+  canvasMode: CanvasMode;
   viewMode: ViewMode;
   syncScroll: boolean;
   onToggleSyncScroll: () => void;
@@ -23,7 +28,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   charCount,
   readingTimeMin,
   pageCount,
-  previewMode,
+  canvasMode,
   viewMode,
   syncScroll,
   onToggleSyncScroll,
@@ -31,10 +36,19 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   onToggleAssetStorageMode,
   toastMessage,
 }) => {
+  const isArchive = isLetraArchivePath(filePath);
+
   return (
     <footer className="flex items-center justify-between h-7 shrink-0 px-3 border-t border-[var(--letra-border)] bg-[var(--letra-chrome-bg)] text-[11px] text-[var(--letra-muted)] select-none">
-      {/* Left: Path or status toast + Asset mode toggle */}
-      <div className="flex items-center gap-3 min-w-0">
+      {/* Left: Path or status toast + Format/Asset mode */}
+      <div className="flex items-center gap-2.5 min-w-0">
+        {isArchive && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-500/12 text-indigo-500 font-medium text-[10px] shrink-0">
+            <Package className="w-2.5 h-2.5" />
+            <span>.letra</span>
+          </span>
+        )}
+
         {toastMessage ? (
           <span className="text-indigo-500 font-medium truncate">{toastMessage}</span>
         ) : (
@@ -49,15 +63,20 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           title="Click to switch how pasted/imported images are saved"
           className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[var(--letra-hover)] hover:text-[var(--letra-fg)] transition-colors cursor-pointer shrink-0"
         >
-          {assetStorageMode === 'local-folder' ? (
-            <>
-              <FolderArchive className="w-3 h-3 text-indigo-500" />
-              <span>Assets: ./assets/</span>
-            </>
-          ) : (
+          {assetStorageMode === 'embed-base64' ? (
             <>
               <Lock className="w-3 h-3 text-emerald-500" />
               <span>Assets: Embed Base64</span>
+            </>
+          ) : isArchive ? (
+            <>
+              <Package className="w-3 h-3 text-indigo-500" />
+              <span>Assets: Bundled in .letra</span>
+            </>
+          ) : (
+            <>
+              <FolderArchive className="w-3 h-3 text-indigo-500" />
+              <span>Assets: ./assets/</span>
             </>
           )}
         </button>
@@ -81,7 +100,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           </button>
         )}
 
-        {viewMode !== 'raw' && previewMode === 'page' && (
+        {viewMode !== 'raw' && canvasMode === 'page' && (
           <span>
             {pageCount} {pageCount === 1 ? 'page' : 'pages'}
           </span>

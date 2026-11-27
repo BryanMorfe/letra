@@ -1,12 +1,13 @@
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type ResolvedTheme = 'light' | 'dark';
 export type ViewMode = 'raw' | 'split' | 'preview';
-export type PreviewMode = 'continuous' | 'page';
+export type CanvasMode = 'open' | 'page';
+export type DocumentFormat = 'md' | 'letra';
 export type PagePresetId = 'letter' | 'legal' | 'a4' | 'a5' | 'b5' | 'executive' | 'custom';
 export type PageOrientation = 'portrait' | 'landscape';
 export type LengthUnit = 'mm' | 'in';
 export type AssetStorageMode = 'local-folder' | 'embed-base64';
-export type TypographyStyle = 'editorial' | 'sans' | 'serif';
+export type TypographyStyle = 'serif' | 'sans';
 
 export interface PageMarginsMm {
   top: number;
@@ -36,6 +37,7 @@ export interface PageSettings {
   differentFirstPage: boolean;
   zoom: number | 'fit-width';
   typography: TypographyStyle;
+  headingDividers: boolean;
   fontSizePx: number;
 }
 
@@ -68,6 +70,21 @@ export interface DocumentTab {
   stagedAssetDir: string | null;
 }
 
+export interface OpenedDocumentPayload {
+  filePath: string;
+  content: string;
+  title: string;
+  stagedAssetDir?: string | null;
+}
+
+export interface SaveDocumentResult {
+  canceled: boolean;
+  filePath?: string;
+  title?: string;
+  updatedContent?: string;
+  stagedAssetDir?: string | null;
+}
+
 export interface TocHeading {
   id: string;
   text: string;
@@ -98,7 +115,7 @@ export interface ExportHtmlRequest {
   htmlBody: string;
   theme: ResolvedTheme;
   pageSettings: PageSettings;
-  previewMode: PreviewMode;
+  canvasMode: CanvasMode;
 }
 
 export interface MenuActionEvent {
@@ -108,6 +125,7 @@ export interface MenuActionEvent {
     | 'open-folder'
     | 'save'
     | 'save-as'
+    | 'save-as-letra'
     | 'close-tab'
     | 'export-pdf'
     | 'export-html'
@@ -116,6 +134,7 @@ export interface MenuActionEvent {
     | 'view-split'
     | 'view-preview'
     | 'toggle-page-mode'
+    | 'toggle-preview-settings'
     | 'toggle-sidebar'
     | 'theme-system'
     | 'theme-light'
@@ -128,31 +147,25 @@ export interface LetraBridge {
   getSystemTheme: () => Promise<ResolvedTheme>;
   onSystemThemeChange: (cb: (theme: ResolvedTheme) => void) => () => void;
   onMenuAction: (cb: (event: MenuActionEvent) => void) => () => void;
-  onOpenExternalFile: (cb: (file: { filePath: string; content: string; title: string }) => void) => () => void;
+  onOpenExternalFile: (cb: (file: OpenedDocumentPayload) => void) => () => void;
 
-  openFileDialog: () => Promise<{ filePath: string; content: string; title: string } | null>;
-  readFile: (filePath: string) => Promise<{ filePath: string; content: string; title: string }>;
+  openFileDialog: () => Promise<OpenedDocumentPayload | null>;
+  readFile: (filePath: string) => Promise<OpenedDocumentPayload>;
   saveFile: (params: {
     filePath: string | null;
     content: string;
     defaultTitle?: string;
     stagedAssetDir?: string | null;
-  }) => Promise<{
-    canceled: boolean;
-    filePath?: string;
-    title?: string;
-    updatedContent?: string;
-  }>;
+    preferredFormat?: DocumentFormat;
+  }) => Promise<SaveDocumentResult>;
   saveFileAs: (params: {
     content: string;
     defaultTitle?: string;
     stagedAssetDir?: string | null;
-  }) => Promise<{
-    canceled: boolean;
-    filePath?: string;
-    title?: string;
-    updatedContent?: string;
-  }>;
+    previousFilePath?: string | null;
+    preferredFormat?: DocumentFormat;
+  }) => Promise<SaveDocumentResult>;
+  releaseArchiveSession: (stagedAssetDir: string) => Promise<void>;
 
   openFolderDialog: () => Promise<{ folderPath: string; tree: FileTreeNode[] } | null>;
   readFolderTree: (folderPath: string) => Promise<FileTreeNode[]>;
@@ -179,6 +192,10 @@ export interface LetraBridge {
   exportPdf: (req: ExportPdfRequest) => Promise<{ canceled: boolean; filePath?: string; error?: string }>;
   exportHtml: (req: ExportHtmlRequest) => Promise<{ canceled: boolean; filePath?: string; error?: string }>;
   openExternalUrl: (url: string) => Promise<void>;
+}
+
+export function isLetraArchivePath(filePath: string | null | undefined): boolean {
+  return Boolean(filePath && filePath.toLowerCase().endsWith('.letra'));
 }
 
 declare global {

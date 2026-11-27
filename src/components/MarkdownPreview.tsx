@@ -14,11 +14,10 @@ import {
   getResolvedPageSizePx,
   mmToUnit,
 } from '../../shared/pagePresets';
-import type { PagePresetId, PageSettings, PreviewMode, ResolvedTheme } from '../../shared/types';
+import type { CanvasMode, PagePresetId, PageSettings, ResolvedTheme } from '../../shared/types';
 import { hydrateMermaidInContainer } from '../lib/mermaidRenderer';
 import { paginateMeasuredContainer, type PaginatedSlice } from '../lib/paginator';
 import { openExternalLink } from '../lib/platform';
-import { PageSetupPopover } from './PageSetupPopover';
 
 export interface MarkdownPreviewHandle {
   scrollToRatio: (ratio: number) => void;
@@ -30,9 +29,11 @@ interface MarkdownPreviewProps {
   html: string;
   documentTitle: string;
   theme: ResolvedTheme;
-  previewMode: PreviewMode;
+  canvasMode: CanvasMode;
   pageSettings: PageSettings;
+  forceWhitePaper: boolean;
   onChangePageSettings: (next: PageSettings) => void;
+  onOpenPreviewSettings: () => void;
   onScrollRatio?: (ratio: number) => void;
   onPageCountChange?: (count: number) => void;
 }
@@ -43,27 +44,27 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
       html,
       documentTitle,
       theme,
-      previewMode,
+      canvasMode,
       pageSettings,
+      forceWhitePaper,
       onChangePageSettings,
+      onOpenPreviewSettings,
       onScrollRatio,
       onPageCountChange,
     },
     ref
   ) => {
     const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const continuousArticleRef = useRef<HTMLElement>(null);
+    const openCanvasArticleRef = useRef<HTMLElement>(null);
     const measureContainerRef = useRef<HTMLDivElement>(null);
     const isSyncingScrollRef = useRef(false);
 
     const [pages, setPages] = useState<PaginatedSlice[]>([{ pageNumber: 1, html }]);
     const [viewportWidth, setViewportWidth] = useState(900);
-    const [setupOpen, setSetupOpen] = useState(false);
-    const [forceWhitePaper, setForceWhitePaper] = useState(false);
     const [hydratedExportHtml, setHydratedExportHtml] = useState(html);
 
     const effectivePaperTheme: ResolvedTheme =
-      previewMode === 'page' && forceWhitePaper ? 'light' : theme;
+      canvasMode === 'page' && forceWhitePaper ? 'light' : theme;
 
     const { widthPx: pageWidthPx, heightPx: pageHeightPx } = useMemo(
       () => getResolvedPageSizePx(pageSettings),
@@ -78,7 +79,6 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
     const printableWidthPx = Math.max(180, pageWidthPx - marginLeftPx - marginRightPx);
     const printableHeightPx = Math.max(180, pageHeightPx - marginTopPx - marginBottomPx);
 
-    // Track scroll container width for Fit Width zoom
     useEffect(() => {
       const el = scrollContainerRef.current;
       if (!el) return;
@@ -87,22 +87,12 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
       const ro = new ResizeObserver(update);
       ro.observe(el);
       return () => ro.disconnect();
-    }, [previewMode]);
+    }, [canvasMode]);
 
-    // Close popover on Escape
+    // Hydrate Mermaid in Open Canvas mode
     useEffect(() => {
-      if (!setupOpen) return;
-      const onKey = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') setSetupOpen(false);
-      };
-      window.addEventListener('keydown', onKey);
-      return () => window.removeEventListener('keydown', onKey);
-    }, [setupOpen]);
-
-    // Hydrate Mermaid in continuous view
-    useEffect(() => {
-      if (previewMode !== 'continuous') return;
-      const container = continuousArticleRef.current;
+      if (canvasMode !== 'open') return;
+      const container = openCanvasArticleRef.current;
       if (!container) return;
 
       let cancelled = false;
@@ -118,11 +108,11 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
       return () => {
         cancelled = true;
       };
-    }, [html, theme, previewMode]);
+    }, [html, theme, canvasMode]);
 
-    // Measure & paginate in Page Mode
+    // Measure & paginate in Page canvas mode
     useEffect(() => {
-      if (previewMode !== 'page') return;
+      if (canvasMode !== 'page') return;
       const measureRoot = measureContainerRef.current;
       if (!measureRoot) return;
 
@@ -141,7 +131,6 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
         await hydrateMermaidInContainer(measureRoot, effectivePaperTheme);
         if (cancelled) return;
 
-        // Wait for images inside the document to load so pagination heights are exact
         const imgs = Array.from(measureRoot.querySelectorAll('img'));
         if (imgs.length > 0) {
           await Promise.all(
@@ -165,11 +154,12 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
       };
     }, [
       html,
-      previewMode,
+      canvasMode,
       effectivePaperTheme,
       printableWidthPx,
       printableHeightPx,
       pageSettings.typography,
+      pageSettings.headingDividers,
       pageSettings.fontSizePx,
       onPageCountChange,
     ]);
@@ -229,10 +219,10 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
         heading?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       },
       getHydratedHtml: () => {
-        if (previewMode === 'continuous' && continuousArticleRef.current) {
-          return continuousArticleRef.current.innerHTML;
+        if (canvasMode === 'open' && openCanvasArticleRef.current) {
+          return openCanvasArticleRef.current.innerHTML;
         }
-        if (previewMode === 'page' && measureContainerRef.current) {
+        if (canvasMode === 'page' && measureContainerRef.current) {
           return measureContainerRef.current.innerHTML;
         }
         return hydratedExportHtml || html;
@@ -249,7 +239,14 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
       []
     );
 
-    const proseTypographyClass = `letra-typo-${pageSettings.typography}`;
+    const proseClasses = [
+      'letra-prose',
+      `letra-typo-${pageSettings.typography}`,
+      !pageSettings.headingDividers ? 'letra-no-heading-dividers' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
     const presetShortLabel =
       pageSettings.preset === 'custom'
         ? `${mmToUnit(pageSettings.customWidthMm, pageSettings.unit)}×${mmToUnit(pageSettings.customHeightMm, pageSettings.unit)} ${pageSettings.unit}`
@@ -263,8 +260,8 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
 
     return (
       <div className="relative flex flex-col h-full w-full overflow-hidden">
-        {/* Page Mode Compact Strip */}
-        {previewMode === 'page' && (
+        {/* Compact Page Quick-Bar (shown when Canvas Mode === 'page') */}
+        {canvasMode === 'page' && (
           <div className="relative z-20 shrink-0 border-b border-[var(--letra-border)] bg-[var(--letra-surface)]/85 backdrop-blur-sm">
             <div className="flex items-center justify-between gap-2 px-3 h-9 overflow-x-auto no-scrollbar whitespace-nowrap">
               <div className="flex items-center gap-1.5 shrink-0">
@@ -281,7 +278,11 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
                   className="text-xs font-medium bg-transparent text-[var(--letra-fg)] hover:bg-[var(--letra-hover)] rounded-md px-1.5 py-1 focus:outline-none cursor-pointer whitespace-nowrap"
                 >
                   {Object.values(PAGE_PRESETS).map((p) => (
-                    <option key={p.id} value={p.id} className="bg-[var(--letra-elevated)] text-[var(--letra-fg)]">
+                    <option
+                      key={p.id}
+                      value={p.id}
+                      className="bg-[var(--letra-elevated)] text-[var(--letra-fg)]"
+                    >
                       {p.label}
                     </option>
                   ))}
@@ -307,15 +308,12 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
 
                 <button
                   type="button"
-                  onClick={() => setSetupOpen((v) => !v)}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                    setupOpen
-                      ? 'bg-indigo-500 text-white'
-                      : 'bg-[var(--letra-hover)] text-[var(--letra-fg)] hover:bg-[var(--letra-border)]'
-                  }`}
+                  title="Open Preview Settings"
+                  aria-label="Open Preview Settings"
+                  onClick={onOpenPreviewSettings}
+                  className="inline-flex items-center justify-center p-1 rounded-md text-[var(--letra-muted)] hover:text-[var(--letra-fg)] hover:bg-[var(--letra-hover)] transition-colors cursor-pointer shrink-0"
                 >
-                  <SlidersHorizontal className="w-3 h-3 shrink-0" />
-                  <span>Page Setup</span>
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
                 </button>
               </div>
 
@@ -364,19 +362,6 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
                 </span>
               </div>
             </div>
-
-            {setupOpen && (
-              <div className="absolute left-3 top-10 z-50">
-                <PageSetupPopover
-                  settings={pageSettings}
-                  onChange={onChangePageSettings}
-                  forceWhitePaper={forceWhitePaper}
-                  onToggleForceWhitePaper={setForceWhitePaper}
-                  isDarkTheme={theme === 'dark'}
-                  onClose={() => setSetupOpen(false)}
-                />
-              </div>
-            )}
           </div>
         )}
 
@@ -393,16 +378,16 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
             }
           }}
           className={`flex-1 min-h-0 overflow-auto ${
-            previewMode === 'page'
+            canvasMode === 'page'
               ? 'bg-[var(--letra-desk-bg)] py-8 px-6'
               : 'bg-[var(--letra-preview-bg)]'
           }`}
         >
-          {previewMode === 'continuous' ? (
+          {canvasMode === 'open' ? (
             <div className="mx-auto max-w-[760px] px-8 sm:px-12 py-10 pb-24">
               <article
-                ref={continuousArticleRef}
-                className={`letra-prose ${proseTypographyClass}`}
+                ref={openCanvasArticleRef}
+                className={proseClasses}
                 style={{ fontSize: `${pageSettings.fontSizePx}px` }}
               />
             </div>
@@ -439,7 +424,6 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
                         borderRadius: '4px',
                       }}
                     >
-                      {/* Running Header inside top margin */}
                       {pageSettings.showHeader && !hideHF && (
                         <div
                           className="absolute top-0 left-0 right-0 flex items-end justify-between text-[11px] select-none pointer-events-none opacity-60"
@@ -462,7 +446,6 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
                         </div>
                       )}
 
-                      {/* Printable Body */}
                       <div
                         className="absolute overflow-hidden"
                         style={{
@@ -473,7 +456,7 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
                         }}
                       >
                         <article
-                          className={`letra-prose ${proseTypographyClass} ${
+                          className={`${proseClasses} ${
                             effectivePaperTheme === 'light' ? 'letra-prose-force-light' : ''
                           }`}
                           style={{ fontSize: `${pageSettings.fontSizePx}px` }}
@@ -481,7 +464,6 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
                         />
                       </div>
 
-                      {/* Running Footer inside bottom margin */}
                       {pageSettings.showFooter && !hideHF && (
                         <div
                           className="absolute bottom-0 left-0 right-0 flex items-start justify-between text-[11px] select-none pointer-events-none opacity-60"
@@ -511,8 +493,8 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
           )}
         </div>
 
-        {/* Offscreen Pagination Measurement Surface (exact printable width) */}
-        {previewMode === 'page' && (
+        {/* Offscreen Pagination Measurement Surface */}
+        {canvasMode === 'page' && (
           <div
             aria-hidden="true"
             className="fixed -left-[99999px] top-0 pointer-events-none opacity-0"
@@ -520,7 +502,7 @@ export const MarkdownPreview = React.forwardRef<MarkdownPreviewHandle, MarkdownP
           >
             <div
               ref={measureContainerRef}
-              className={`letra-prose ${proseTypographyClass}`}
+              className={proseClasses}
               style={{ fontSize: `${pageSettings.fontSizePx}px` }}
             />
           </div>

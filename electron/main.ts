@@ -16,14 +16,24 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type {
   AssetStorageMode,
+  DocumentFormat,
   ExportHtmlRequest,
   ExportPdfRequest,
   FileTreeNode,
   ImportedAssetResult,
   MenuActionEvent,
+  OpenedDocumentPayload,
   ResolvedTheme,
+  SaveDocumentResult,
 } from '../shared/types';
+import { isLetraArchivePath } from '../shared/types';
 import { exportDocumentToHtml, exportDocumentToPdf } from './exportService';
+import {
+  cleanupAllArchiveWorkDirs,
+  readLetraArchive,
+  releaseArchiveWorkDir,
+  writeLetraArchive,
+} from './letraArchive';
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -222,6 +232,7 @@ function buildAppMenu() {
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => sendMenuAction('save') },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => sendMenuAction('save-as') },
+        { label: 'Save as .letra Package…', accelerator: 'CmdOrCtrl+Alt+S', click: () => sendMenuAction('save-as-letra') },
         { type: 'separator' },
         { label: 'Import Image or Asset…', accelerator: 'CmdOrCtrl+Shift+I', click: () => sendMenuAction('import-asset') },
         { type: 'separator' },
@@ -253,7 +264,7 @@ function buildAppMenu() {
         { label: 'Split View', accelerator: 'CmdOrCtrl+2', click: () => sendMenuAction('view-split') },
         { label: 'Rendered Preview', accelerator: 'CmdOrCtrl+3', click: () => sendMenuAction('view-preview') },
         { type: 'separator' },
-        { label: 'Toggle Page Mode', accelerator: 'CmdOrCtrl+Shift+P', click: () => sendMenuAction('toggle-page-mode') },
+        { label: 'Preview Settings', accelerator: 'CmdOrCtrl+Shift+P', click: () => sendMenuAction('toggle-preview-settings') },
         { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+\\', click: () => sendMenuAction('toggle-sidebar') },
         { type: 'separator' },
         {
@@ -283,6 +294,78 @@ function buildAppMenu() {
 
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
+}
+
+async function openDocumentFromPath(filePath: string): Promise<OpenedDocumentPayload> {
+  if (isLetraArchivePath(filePath)) {
+    return readLetraArchive(filePath);
+  }
+  const content = fs.readFileSync(filePath, 'utf8');
+  return { filePath, content, title: path.basename(filePath), stagedAssetDir: null };
+}
+
+function buildSaveDialogOptions(params: {
+  title: string;
+  defaultTitle?: string;
+  preferredFormat?: DocumentFormat;
+}): Electron.SaveDialogOptions {
+  const baseTitle = (params.defaultTitle || 'Untitled').replace(/\.(md|markdown|txt|letra)$/i, '') || 'Untitled';
+  const preferLetra = params.preferredFormat === 'letra';
+  const defaultPath = preferLetra ? `${baseTitle}.letra` : `${baseTitle}.md`;
+  const filters: Electron.FileFilter[] = preferLetra
+    ? [
+        { name: 'Letra Package (.letra)', extensions: ['letra'] },
+        { name: 'Markdown Document (.md)', extensions: ['md', 'markdown', 'txt'] },
+      ]
+    : [
+        { name: 'Markdown Document (.md)', extensions: ['md', 'markdown', 'txt'] },
+        { name: 'Letra Package (.letra)', extensions: ['letra'] },
+      ];
+  return {
+    title: params.title,
+    defaultPath,
+    filters,
+  };
+}
+
+async function saveDocumentToPath(params: {
+  targetPath: string;
+  content: string;
+  stagedAssetDir: string | null;
+  sourceMdPath?: string | null;
+}): Promise<SaveDocumentResult> {
+  if (isLetraArchivePath(params.targetPath)) {
+    const saved = await writeLetraArchive({
+      targetPath: params.targetPath,
+      content: params.content,
+      stagedAssetDir: params.stagedAssetDir,
+      sourceMdPath: params.sourceMdPath,
+    });
+    return {
+      canceled: false,
+      filePath: saved.filePath,
+      title: saved.title,
+      updatedContent: saved.updatedContent,
+      stagedAssetDir: saved.stagedAssetDir,
+    };
+  }
+
+  const updatedContent = migrateStagedAssets(
+    params.stagedAssetDir,
+    params.targetPath,
+    params.content
+  );
+  fs.writeFileSync(params.targetPath, updatedContent, 'utf8');
+  if (params.stagedAssetDir) {
+    releaseArchiveWorkDir(params.stagedAssetDir);
+  }
+  return {
+    canceled: false,
+    filePath: params.targetPath,
+    title: path.basename(params.targetPath),
+    updatedContent,
+    stagedAssetDir: null,
+  };
 }
 
 function createWindow() {
@@ -317,14 +400,14 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  mainWindow.webContents.on('did-finish-load', () => {
+  mainWindow.webContents.on('did-finish-load', async () => {
     if (pendingOpenFilePath && fs.existsSync(pendingOpenFilePath)) {
-      const content = fs.readFileSync(pendingOpenFilePath, 'utf8');
-      mainWindow?.webContents.send('letra:open-external-file', {
-        filePath: pendingOpenFilePath,
-        content,
-        title: path.basename(pendingOpenFilePath),
-      });
+      try {
+        const doc = await openDocumentFromPath(pendingOpenFilePath);
+        mainWindow?.webContents.send('letra:open-external-file', doc);
+      } catch {
+        // ignore unreadable startup file
+      }
       pendingOpenFilePath = null;
     }
   });
@@ -380,11 +463,13 @@ function registerIpc() {
     mainWindow?.webContents.send('theme:system-changed', resolved);
   });
 
-  ipcMain.handle('dialog:open-file', async () => {
+  ipcMain.handle('dialog:open-file', async (): Promise<OpenedDocumentPayload | null> => {
     const opts: Electron.OpenDialogOptions = {
-      title: 'Open Markdown File',
+      title: 'Open Document',
       properties: ['openFile'],
       filters: [
+        { name: 'Letra & Markdown', extensions: ['letra', 'md', 'markdown', 'mdx', 'txt'] },
+        { name: 'Letra Package (.letra)', extensions: ['letra'] },
         { name: 'Markdown', extensions: ['md', 'markdown', 'mdx', 'txt'] },
         { name: 'All Files', extensions: ['*'] },
       ],
@@ -393,62 +478,49 @@ function registerIpc() {
       ? await dialog.showOpenDialog(mainWindow, opts)
       : await dialog.showOpenDialog(opts);
     if (res.canceled || res.filePaths.length === 0) return null;
-    const filePath = res.filePaths[0];
-    const content = fs.readFileSync(filePath, 'utf8');
-    return { filePath, content, title: path.basename(filePath) };
+    return openDocumentFromPath(res.filePaths[0]);
   });
 
-  ipcMain.handle('fs:read-file', async (_evt, filePath: string) => {
-    const content = fs.readFileSync(filePath, 'utf8');
-    return { filePath, content, title: path.basename(filePath) };
+  ipcMain.handle('fs:read-file', async (_evt, filePath: string): Promise<OpenedDocumentPayload> => {
+    return openDocumentFromPath(filePath);
   });
 
   ipcMain.handle(
     'fs:save-file',
     async (
       _evt,
-      params: { filePath: string | null; content: string; defaultTitle?: string; stagedAssetDir?: string | null }
-    ) => {
+      params: {
+        filePath: string | null;
+        content: string;
+        defaultTitle?: string;
+        stagedAssetDir?: string | null;
+        preferredFormat?: DocumentFormat;
+      }
+    ): Promise<SaveDocumentResult> => {
       if (!params.filePath) {
-        const defaultName = params.defaultTitle?.endsWith('.md')
-          ? params.defaultTitle
-          : `${params.defaultTitle || 'Untitled'}.md`;
-        const opts: Electron.SaveDialogOptions = {
+        const opts = buildSaveDialogOptions({
           title: 'Save Document',
-          defaultPath: defaultName,
-          filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
-        };
+          defaultTitle: params.defaultTitle,
+          preferredFormat: params.preferredFormat,
+        });
         const res = mainWindow
           ? await dialog.showSaveDialog(mainWindow, opts)
           : await dialog.showSaveDialog(opts);
         if (res.canceled || !res.filePath) return { canceled: true };
 
-        const updatedContent = migrateStagedAssets(
-          params.stagedAssetDir ?? null,
-          res.filePath,
-          params.content
-        );
-        fs.writeFileSync(res.filePath, updatedContent, 'utf8');
-        return {
-          canceled: false,
-          filePath: res.filePath,
-          title: path.basename(res.filePath),
-          updatedContent,
-        };
+        return saveDocumentToPath({
+          targetPath: res.filePath,
+          content: params.content,
+          stagedAssetDir: params.stagedAssetDir ?? null,
+        });
       }
 
-      const updatedContent = migrateStagedAssets(
-        params.stagedAssetDir ?? null,
-        params.filePath,
-        params.content
-      );
-      fs.writeFileSync(params.filePath, updatedContent, 'utf8');
-      return {
-        canceled: false,
-        filePath: params.filePath,
-        title: path.basename(params.filePath),
-        updatedContent,
-      };
+      return saveDocumentToPath({
+        targetPath: params.filePath,
+        content: params.content,
+        stagedAssetDir: params.stagedAssetDir ?? null,
+        sourceMdPath: params.filePath,
+      });
     }
   );
 
@@ -456,35 +528,36 @@ function registerIpc() {
     'fs:save-file-as',
     async (
       _evt,
-      params: { content: string; defaultTitle?: string; stagedAssetDir?: string | null }
-    ) => {
-      const defaultName = params.defaultTitle?.endsWith('.md')
-        ? params.defaultTitle
-        : `${params.defaultTitle || 'Untitled'}.md`;
-      const opts: Electron.SaveDialogOptions = {
-        title: 'Save Document As',
-        defaultPath: defaultName,
-        filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
-      };
+      params: {
+        content: string;
+        defaultTitle?: string;
+        stagedAssetDir?: string | null;
+        previousFilePath?: string | null;
+        preferredFormat?: DocumentFormat;
+      }
+    ): Promise<SaveDocumentResult> => {
+      const opts = buildSaveDialogOptions({
+        title: params.preferredFormat === 'letra' ? 'Save as .letra Package' : 'Save Document As',
+        defaultTitle: params.defaultTitle,
+        preferredFormat: params.preferredFormat,
+      });
       const res = mainWindow
         ? await dialog.showSaveDialog(mainWindow, opts)
         : await dialog.showSaveDialog(opts);
       if (res.canceled || !res.filePath) return { canceled: true };
 
-      const updatedContent = migrateStagedAssets(
-        params.stagedAssetDir ?? null,
-        res.filePath,
-        params.content
-      );
-      fs.writeFileSync(res.filePath, updatedContent, 'utf8');
-      return {
-        canceled: false,
-        filePath: res.filePath,
-        title: path.basename(res.filePath),
-        updatedContent,
-      };
+      return saveDocumentToPath({
+        targetPath: res.filePath,
+        content: params.content,
+        stagedAssetDir: params.stagedAssetDir ?? null,
+        sourceMdPath: params.previousFilePath ?? null,
+      });
     }
   );
+
+  ipcMain.handle('fs:release-archive-session', async (_evt, stagedAssetDir: string) => {
+    releaseArchiveWorkDir(stagedAssetDir);
+  });
 
   ipcMain.handle('dialog:open-folder', async () => {
     const opts: Electron.OpenDialogOptions = {
@@ -504,13 +577,21 @@ function registerIpc() {
   });
 
   ipcMain.handle('fs:create-file', async (_evt, params: { parentDir: string; fileName: string }) => {
-    const safeName = params.fileName.trim().endsWith('.md')
-      ? params.fileName.trim()
-      : `${params.fileName.trim()}.md`;
+    const trimmed = params.fileName.trim();
+    const safeName = /\.(md|markdown|txt|letra)$/i.test(trimmed) ? trimmed : `${trimmed}.md`;
     const filePath = path.join(params.parentDir, safeName);
     if (!fs.existsSync(filePath)) {
       const heading = path.basename(safeName, path.extname(safeName));
-      fs.writeFileSync(filePath, `# ${heading}\n\n`, 'utf8');
+      if (isLetraArchivePath(filePath)) {
+        const res = await writeLetraArchive({
+          targetPath: filePath,
+          content: `# ${heading}\n\n`,
+          stagedAssetDir: null,
+        });
+        releaseArchiveWorkDir(res.stagedAssetDir);
+      } else {
+        fs.writeFileSync(filePath, `# ${heading}\n\n`, 'utf8');
+      }
     }
     return { filePath, title: path.basename(filePath) };
   });
@@ -578,9 +659,11 @@ function registerIpc() {
             stagedDir: currentStaged,
           });
         } else {
-          const baseDir = params.documentPath
-            ? path.dirname(params.documentPath)
-            : (currentStaged = getOrCreateStagedDir(currentStaged));
+          const isArchive = isLetraArchivePath(params.documentPath);
+          const baseDir =
+            params.documentPath && !isArchive
+              ? path.dirname(params.documentPath)
+              : (currentStaged = getOrCreateStagedDir(currentStaged));
           const assetsDir = path.join(baseDir, 'assets');
           fs.mkdirSync(assetsDir, { recursive: true });
           const cleanName = sanitizeAssetFilename(origName);
@@ -594,7 +677,7 @@ function registerIpc() {
             fileName: finalName,
             mimeType,
             isImage,
-            stagedDir: params.documentPath ? null : currentStaged,
+            stagedDir: params.documentPath && !isArchive ? null : currentStaged,
           });
         }
       }
@@ -630,9 +713,11 @@ function registerIpc() {
       }
 
       let currentStaged = params.stagedAssetDir;
-      const baseDir = params.documentPath
-        ? path.dirname(params.documentPath)
-        : (currentStaged = getOrCreateStagedDir(currentStaged));
+      const isArchive = isLetraArchivePath(params.documentPath);
+      const baseDir =
+        params.documentPath && !isArchive
+          ? path.dirname(params.documentPath)
+          : (currentStaged = getOrCreateStagedDir(currentStaged));
       const assetsDir = path.join(baseDir, 'assets');
       fs.mkdirSync(assetsDir, { recursive: true });
 
@@ -647,7 +732,7 @@ function registerIpc() {
         fileName: finalName,
         mimeType,
         isImage,
-        stagedDir: params.documentPath ? null : currentStaged,
+        stagedDir: params.documentPath && !isArchive ? null : currentStaged,
       };
     }
   );
@@ -671,12 +756,13 @@ app.on('open-file', (event, filePath) => {
   event.preventDefault();
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf8');
-      mainWindow.webContents.send('letra:open-external-file', {
-        filePath,
-        content,
-        title: path.basename(filePath),
-      });
+      openDocumentFromPath(filePath)
+        .then((doc) => {
+          mainWindow?.webContents.send('letra:open-external-file', doc);
+        })
+        .catch(() => {
+          // ignore open errors
+        });
     }
   } else {
     pendingOpenFilePath = filePath;
@@ -684,7 +770,9 @@ app.on('open-file', (event, filePath) => {
 });
 
 // Check CLI args for opening a file on Linux / macOS
-const cliFileArg = process.argv.slice(1).find((arg) => !arg.startsWith('-') && /\.(md|markdown|txt)$/i.test(arg));
+const cliFileArg = process.argv
+  .slice(1)
+  .find((arg) => !arg.startsWith('-') && /\.(letra|md|markdown|txt)$/i.test(arg));
 if (cliFileArg && fs.existsSync(cliFileArg)) {
   pendingOpenFilePath = path.resolve(cliFileArg);
 }
@@ -700,6 +788,10 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+app.on('will-quit', () => {
+  cleanupAllArchiveWorkDirs();
 });
 
 app.on('window-all-closed', () => {

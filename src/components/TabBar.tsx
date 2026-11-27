@@ -1,6 +1,6 @@
 import React from 'react';
-import { FileText, Plus, X } from 'lucide-react';
-import type { DocumentTab } from '../../shared/types';
+import { FileText, Package, Plus, X } from 'lucide-react';
+import { isLetraArchivePath, type DocumentTab } from '../../shared/types';
 
 interface TabBarProps {
   tabs: DocumentTab[];
@@ -36,7 +36,11 @@ export const TabBar: React.FC<TabBarProps> = ({
                 : 'text-[var(--letra-muted)] hover:text-[var(--letra-fg)] hover:bg-[var(--letra-hover)]'
             }`}
           >
-            <FileText className="w-3.5 h-3.5 shrink-0 opacity-65" />
+            {isLetraArchivePath(tab.filePath || tab.title) ? (
+              <Package className="w-3.5 h-3.5 shrink-0 text-indigo-500" />
+            ) : (
+              <FileText className="w-3.5 h-3.5 shrink-0 opacity-65" />
+            )}
             <span className="truncate">{tab.title}</span>
 
             <button

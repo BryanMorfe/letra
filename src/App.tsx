@@ -1,14 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import JSZip from 'jszip';
 import { DEFAULT_PAGE_SETTINGS } from '../shared/pagePresets';
-import type {
-  AssetStorageMode,
-  DocumentTab,
-  FileTreeNode,
-  PageSettings,
-  PreviewMode,
-  ResolvedTheme,
-  ThemeMode,
-  ViewMode,
+import {
+  isLetraArchivePath,
+  type AssetStorageMode,
+  type CanvasMode,
+  type DocumentFormat,
+  type DocumentTab,
+  type FileTreeNode,
+  type OpenedDocumentPayload,
+  type PageSettings,
+  type ResolvedTheme,
+  type ThemeMode,
+  type TypographyStyle,
+  type ViewMode,
 } from '../shared/types';
 import { MarkdownEditor, type MarkdownEditorHandle } from './components/MarkdownEditor';
 import { MarkdownPreview, type MarkdownPreviewHandle } from './components/MarkdownPreview';
@@ -29,13 +34,15 @@ import {
 } from './lib/platform';
 import { WELCOME_MARKDOWN } from './lib/welcomeDocument';
 
-const STORAGE_KEY = 'letra:preferences:v1';
+const STORAGE_KEY = 'letra:preferences:v2';
+const LEGACY_STORAGE_KEY = 'letra:preferences:v1';
 
 interface PersistedPreferences {
   themeMode: ThemeMode;
   viewMode: ViewMode;
-  previewMode: PreviewMode;
+  canvasMode: CanvasMode;
   pageSettings: PageSettings;
+  forceWhitePaper: boolean;
   assetStorageMode: AssetStorageMode;
   syncScroll: boolean;
   sidebarVisible: boolean;
@@ -43,36 +50,48 @@ interface PersistedPreferences {
   splitRatio: number;
 }
 
+function normalizeTypography(val: unknown): TypographyStyle {
+  return val === 'sans' ? 'sans' : 'serif';
+}
+
+function normalizeCanvasMode(val: unknown): CanvasMode {
+  return val === 'page' ? 'page' : 'open';
+}
+
 function loadPreferences(): PersistedPreferences {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<PersistedPreferences>;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const rawPage = (parsed.pageSettings || {}) as Partial<PageSettings>;
       return {
-        themeMode: parsed.themeMode || 'system',
-        viewMode: parsed.viewMode || 'split',
-        previewMode: parsed.previewMode || 'continuous',
+        themeMode: (parsed.themeMode as ThemeMode) || 'system',
+        viewMode: (parsed.viewMode as ViewMode) || 'split',
+        canvasMode: normalizeCanvasMode(parsed.canvasMode ?? parsed.previewMode),
         pageSettings: {
           ...DEFAULT_PAGE_SETTINGS,
-          ...(parsed.pageSettings || {}),
+          ...rawPage,
+          typography: normalizeTypography(rawPage.typography),
+          headingDividers: rawPage.headingDividers ?? true,
           marginsMm: {
             ...DEFAULT_PAGE_SETTINGS.marginsMm,
-            ...(parsed.pageSettings?.marginsMm || {}),
+            ...(rawPage.marginsMm || {}),
           },
           header: {
             ...DEFAULT_PAGE_SETTINGS.header,
-            ...(parsed.pageSettings?.header || {}),
+            ...(rawPage.header || {}),
           },
           footer: {
             ...DEFAULT_PAGE_SETTINGS.footer,
-            ...(parsed.pageSettings?.footer || {}),
+            ...(rawPage.footer || {}),
           },
         },
-        assetStorageMode: parsed.assetStorageMode || 'local-folder',
-        syncScroll: parsed.syncScroll ?? true,
-        sidebarVisible: parsed.sidebarVisible ?? true,
-        sidebarTab: parsed.sidebarTab || 'outline',
-        splitRatio: parsed.splitRatio ?? 0.5,
+        forceWhitePaper: Boolean(parsed.forceWhitePaper),
+        assetStorageMode: (parsed.assetStorageMode as AssetStorageMode) || 'local-folder',
+        syncScroll: (parsed.syncScroll as boolean | undefined) ?? true,
+        sidebarVisible: (parsed.sidebarVisible as boolean | undefined) ?? true,
+        sidebarTab: (parsed.sidebarTab as 'files' | 'outline') || 'outline',
+        splitRatio: typeof parsed.splitRatio === 'number' ? parsed.splitRatio : 0.5,
       };
     }
   } catch {
@@ -81,8 +100,9 @@ function loadPreferences(): PersistedPreferences {
   return {
     themeMode: 'system',
     viewMode: 'split',
-    previewMode: 'continuous',
+    canvasMode: 'open',
     pageSettings: DEFAULT_PAGE_SETTINGS,
+    forceWhitePaper: false,
     assetStorageMode: 'local-folder',
     syncScroll: true,
     sidebarVisible: true,
@@ -112,10 +132,12 @@ export const App: React.FC = () => {
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>('light');
   const resolvedTheme: ResolvedTheme = themeMode === 'system' ? systemTheme : themeMode;
 
-  // Layout & View state
+  // Layout & Preview Settings state
   const [viewMode, setViewMode] = useState<ViewMode>(initialPrefs.viewMode);
-  const [previewMode, setPreviewMode] = useState<PreviewMode>(initialPrefs.previewMode);
+  const [canvasMode, setCanvasMode] = useState<CanvasMode>(initialPrefs.canvasMode);
   const [pageSettings, setPageSettings] = useState<PageSettings>(initialPrefs.pageSettings);
+  const [forceWhitePaper, setForceWhitePaper] = useState<boolean>(initialPrefs.forceWhitePaper);
+  const [previewSettingsOpen, setPreviewSettingsOpen] = useState<boolean>(false);
   const [assetStorageMode, setAssetStorageMode] = useState<AssetStorageMode>(initialPrefs.assetStorageMode);
   const [syncScroll, setSyncScroll] = useState<boolean>(initialPrefs.syncScroll);
   const [sidebarVisible, setSidebarVisible] = useState<boolean>(initialPrefs.sidebarVisible);
@@ -156,6 +178,13 @@ export const App: React.FC = () => {
     toastTimerRef.current = window.setTimeout(() => setToastMessage(null), 3200);
   }, []);
 
+  // Close Preview Settings popover if user switches to Raw-only mode
+  useEffect(() => {
+    if (viewMode === 'raw') {
+      setPreviewSettingsOpen(false);
+    }
+  }, [viewMode]);
+
   // System theme subscription
   useEffect(() => {
     getInitialSystemTheme().then(setSystemTheme);
@@ -173,8 +202,9 @@ export const App: React.FC = () => {
       const payload: PersistedPreferences = {
         themeMode,
         viewMode,
-        previewMode,
+        canvasMode,
         pageSettings,
+        forceWhitePaper,
         assetStorageMode,
         syncScroll,
         sidebarVisible,
@@ -188,8 +218,9 @@ export const App: React.FC = () => {
   }, [
     themeMode,
     viewMode,
-    previewMode,
+    canvasMode,
     pageSettings,
+    forceWhitePaper,
     assetStorageMode,
     syncScroll,
     sidebarVisible,
@@ -238,8 +269,16 @@ export const App: React.FC = () => {
         if (!confirmed) return;
       }
 
+      if (target?.stagedAssetDir && window.letra) {
+        window.letra.releaseArchiveSession(target.stagedAssetDir).catch(() => {});
+      }
+
       if (tabs.length === 1) {
-        const fresh = createTab({ title: 'Untitled.md', content: '# Untitled\n\n', savedContent: '# Untitled\n\n' });
+        const fresh = createTab({
+          title: 'Untitled.md',
+          content: '# Untitled\n\n',
+          savedContent: '# Untitled\n\n',
+        });
         setTabs([fresh]);
         setActiveTabId(fresh.id);
         return;
@@ -256,10 +295,13 @@ export const App: React.FC = () => {
     [tabs, activeTabId]
   );
 
-  const openDocumentInTab = useCallback((doc: { filePath: string; content: string; title: string }) => {
+  const openDocumentInTab = useCallback((doc: OpenedDocumentPayload) => {
     setTabs((prev) => {
       const existing = prev.find((t) => t.filePath === doc.filePath);
       if (existing) {
+        if (doc.stagedAssetDir && doc.stagedAssetDir !== existing.stagedAssetDir && window.letra) {
+          window.letra.releaseArchiveSession(doc.stagedAssetDir).catch(() => {});
+        }
         setActiveTabId(existing.id);
         return prev;
       }
@@ -268,6 +310,7 @@ export const App: React.FC = () => {
         filePath: doc.filePath,
         content: doc.content,
         savedContent: doc.content,
+        stagedAssetDir: doc.stagedAssetDir ?? null,
       });
       setActiveTabId(next.id);
       return [...prev, next];
@@ -284,32 +327,83 @@ export const App: React.FC = () => {
     } else {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = '.md,.markdown,.txt';
+      input.accept = '.letra,.md,.markdown,.txt';
       input.onchange = async () => {
         const file = input.files?.[0];
         if (!file) return;
-        const text = await file.text();
-        openDocumentInTab({ filePath: file.name, content: text, title: file.name });
+        if (isLetraArchivePath(file.name)) {
+          const zip = await JSZip.loadAsync(await file.arrayBuffer());
+          const mdEntry =
+            zip.file('document.md') ||
+            Object.values(zip.files).find((f) => !f.dir && /\.(md|markdown)$/i.test(f.name));
+          const text = mdEntry ? await mdEntry.async('string') : '';
+          openDocumentInTab({ filePath: file.name, content: text, title: file.name });
+        } else {
+          const text = await file.text();
+          openDocumentInTab({ filePath: file.name, content: text, title: file.name });
+        }
       };
       input.click();
     }
   }, [openDocumentInTab, showToast]);
 
   const handleSaveFile = useCallback(
-    async (forceSaveAs = false) => {
+    async (options?: { forceSaveAs?: boolean; preferredFormat?: DocumentFormat }) => {
+      const forceSaveAs = Boolean(options?.forceSaveAs);
+      const preferredFormat = options?.preferredFormat;
+
       if (!window.letra) {
-        // Web fallback download
-        const blob = new Blob([activeTab.content], { type: 'text/markdown;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = activeTab.title.endsWith('.md') ? activeTab.title : `${activeTab.title}.md`;
-        a.click();
-        URL.revokeObjectURL(url);
-        setTabs((prev) =>
-          prev.map((t) => (t.id === activeTab.id ? { ...t, savedContent: t.content } : t))
-        );
-        showToast(`Downloaded ${activeTab.title}`);
+        // Browser fallback: download as .md or .letra ZIP
+        const baseName = activeTab.title.replace(/\.(md|markdown|txt|letra)$/i, '') || 'Untitled';
+        const saveAsLetra =
+          preferredFormat === 'letra' ||
+          (!preferredFormat && isLetraArchivePath(activeTab.filePath || activeTab.title));
+
+        if (saveAsLetra) {
+          const zip = new JSZip();
+          zip.file(
+            'manifest.json',
+            `${JSON.stringify(
+              {
+                format: 'letra',
+                version: 1,
+                entry: 'document.md',
+                title: baseName,
+                updatedAt: new Date().toISOString(),
+              },
+              null,
+              2
+            )}\n`
+          );
+          zip.file('document.md', activeTab.content);
+          const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${baseName}.letra`;
+          a.click();
+          URL.revokeObjectURL(url);
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id === activeTab.id
+                ? { ...t, title: `${baseName}.letra`, savedContent: t.content }
+                : t
+            )
+          );
+          showToast(`Downloaded ${baseName}.letra`);
+        } else {
+          const blob = new Blob([activeTab.content], { type: 'text/markdown;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${baseName}.md`;
+          a.click();
+          URL.revokeObjectURL(url);
+          setTabs((prev) =>
+            prev.map((t) => (t.id === activeTab.id ? { ...t, savedContent: t.content } : t))
+          );
+          showToast(`Downloaded ${baseName}.md`);
+        }
         return;
       }
 
@@ -318,12 +412,15 @@ export const App: React.FC = () => {
             content: activeTab.content,
             defaultTitle: activeTab.title,
             stagedAssetDir: activeTab.stagedAssetDir,
+            previousFilePath: activeTab.filePath,
+            preferredFormat,
           })
         : await window.letra.saveFile({
             filePath: activeTab.filePath,
             content: activeTab.content,
             defaultTitle: activeTab.title,
             stagedAssetDir: activeTab.stagedAssetDir,
+            preferredFormat,
           });
 
       if (!res.canceled && res.filePath) {
@@ -337,12 +434,16 @@ export const App: React.FC = () => {
                   title: res.title || t.title,
                   content: finalContent,
                   savedContent: finalContent,
-                  stagedAssetDir: null,
+                  stagedAssetDir: res.stagedAssetDir ?? null,
                 }
               : t
           )
         );
-        showToast(`Saved ${res.title || activeTab.title}`);
+        showToast(
+          isLetraArchivePath(res.filePath)
+            ? `Saved .letra package: ${res.title || activeTab.title}`
+            : `Saved ${res.title || activeTab.title}`
+        );
         if (workspacePath) {
           const tree = await window.letra.readFolderTree(workspacePath);
           setFileTree(tree);
@@ -426,7 +527,7 @@ export const App: React.FC = () => {
       const snippet = `\n${items.map((i) => i.markdown).join('\n\n')}\n`;
       const nextStaged = items.find((i) => i.stagedDir)?.stagedDir;
 
-      if (nextStaged && !activeTab.stagedAssetDir) {
+      if (nextStaged && nextStaged !== activeTab.stagedAssetDir) {
         setTabs((prev) =>
           prev.map((t) => (t.id === activeTab.id ? { ...t, stagedAssetDir: nextStaged } : t))
         );
@@ -470,7 +571,7 @@ export const App: React.FC = () => {
     [activeTab.filePath, activeTab.stagedAssetDir, assetStorageMode, insertImportedAssets]
   );
 
-  // Build hydrated HTML with Mermaid SVGs rendered for export (works even in Raw mode!)
+  // Build hydrated HTML with Mermaid SVGs rendered for export
   const getExportHtmlBody = useCallback(
     async (targetTheme: ResolvedTheme): Promise<string> => {
       const liveHtml = previewRef.current?.getHydratedHtml();
@@ -526,7 +627,7 @@ export const App: React.FC = () => {
         htmlBody,
         theme: resolvedTheme,
         pageSettings,
-        previewMode,
+        canvasMode,
       });
       if (res.error) {
         showToast(`HTML export failed: ${res.error}`);
@@ -538,9 +639,9 @@ export const App: React.FC = () => {
     }
   }, [
     activeTab.title,
+    canvasMode,
     getExportHtmlBody,
     pageSettings,
-    previewMode,
     rendered.frontmatterTitle,
     resolvedTheme,
     showToast,
@@ -561,10 +662,13 @@ export const App: React.FC = () => {
           handleOpenFolder();
           break;
         case 'save':
-          handleSaveFile(false);
+          handleSaveFile({ forceSaveAs: false });
           break;
         case 'save-as':
-          handleSaveFile(true);
+          handleSaveFile({ forceSaveAs: true });
+          break;
+        case 'save-as-letra':
+          handleSaveFile({ forceSaveAs: true, preferredFormat: 'letra' });
           break;
         case 'close-tab':
           handleCloseTab(activeTab.id);
@@ -588,8 +692,12 @@ export const App: React.FC = () => {
           setViewMode('preview');
           break;
         case 'toggle-page-mode':
-          setPreviewMode((m) => (m === 'page' ? 'continuous' : 'page'));
+          setCanvasMode((m) => (m === 'page' ? 'open' : 'page'));
           setViewMode((v) => (v === 'raw' ? 'preview' : v));
+          break;
+        case 'toggle-preview-settings':
+          setViewMode((v) => (v === 'raw' ? 'split' : v));
+          setPreviewSettingsOpen((open) => !open);
           break;
         case 'toggle-sidebar':
           setSidebarVisible((s) => !s);
@@ -650,11 +758,14 @@ export const App: React.FC = () => {
         setSidebarVisible((v) => !v);
       } else if (e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
-        setPreviewMode((m) => (m === 'page' ? 'continuous' : 'page'));
-        setViewMode((v) => (v === 'raw' ? 'preview' : v));
+        setViewMode((v) => (v === 'raw' ? 'split' : v));
+        setPreviewSettingsOpen((open) => !open);
       } else if (!window.letra && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        handleSaveFile(e.shiftKey);
+        handleSaveFile({
+          forceSaveAs: e.shiftKey || e.altKey,
+          preferredFormat: e.altKey ? 'letra' : undefined,
+        });
       } else if (!window.letra && e.key.toLowerCase() === 'e') {
         e.preventDefault();
         if (e.shiftKey) handleExportHtml();
@@ -713,14 +824,23 @@ export const App: React.FC = () => {
         onToggleSidebar={() => setSidebarVisible((v) => !v)}
         viewMode={viewMode}
         onChangeViewMode={setViewMode}
-        previewMode={previewMode}
-        onTogglePreviewMode={() => setPreviewMode((m) => (m === 'page' ? 'continuous' : 'page'))}
+        canvasMode={canvasMode}
+        onChangeCanvasMode={setCanvasMode}
+        pageSettings={pageSettings}
+        onChangePageSettings={setPageSettings}
+        previewSettingsOpen={previewSettingsOpen}
+        onSetPreviewSettingsOpen={setPreviewSettingsOpen}
+        forceWhitePaper={forceWhitePaper}
+        onToggleForceWhitePaper={setForceWhitePaper}
+        isDarkTheme={resolvedTheme === 'dark'}
         themeMode={themeMode}
         onChangeThemeMode={setThemeMode}
         isDirty={isDirty}
         onNewFile={handleNewTab}
         onOpenFile={handleOpenFile}
-        onSaveFile={() => handleSaveFile(false)}
+        onSaveFile={() => handleSaveFile({ forceSaveAs: false })}
+        onSaveAsMarkdown={() => handleSaveFile({ forceSaveAs: true, preferredFormat: 'md' })}
+        onSaveAsLetra={() => handleSaveFile({ forceSaveAs: true, preferredFormat: 'letra' })}
         onImportAsset={handleImportAssetDialog}
         onExportPdf={handleExportPdf}
         onExportHtml={handleExportHtml}
@@ -815,9 +935,11 @@ export const App: React.FC = () => {
                 html={rendered.html}
                 documentTitle={rendered.frontmatterTitle || activeTab.title}
                 theme={resolvedTheme}
-                previewMode={previewMode}
+                canvasMode={canvasMode}
                 pageSettings={pageSettings}
+                forceWhitePaper={forceWhitePaper}
                 onChangePageSettings={setPageSettings}
+                onOpenPreviewSettings={() => setPreviewSettingsOpen(true)}
                 onPageCountChange={setPageCount}
                 onScrollRatio={(ratio) => {
                   if (syncScroll && viewMode === 'split') {
@@ -837,7 +959,7 @@ export const App: React.FC = () => {
         charCount={rendered.charCount}
         readingTimeMin={rendered.readingTimeMin}
         pageCount={pageCount}
-        previewMode={previewMode}
+        canvasMode={canvasMode}
         viewMode={viewMode}
         syncScroll={syncScroll}
         onToggleSyncScroll={() => setSyncScroll((v) => !v)}
@@ -848,7 +970,9 @@ export const App: React.FC = () => {
           setAssetStorageMode(next);
           showToast(
             next === 'local-folder'
-              ? 'Assets will be copied into ./assets/ next to your document'
+              ? isLetraArchivePath(activeTab.filePath)
+                ? 'Assets will be bundled inside your .letra package'
+                : 'Assets will be copied into ./assets/ next to your document'
               : 'Assets will be embedded as base64 inside the Markdown'
           );
         }}

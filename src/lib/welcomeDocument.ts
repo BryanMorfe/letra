@@ -7,7 +7,7 @@ title: Welcome to Letra
 **Letra** is a calm, print-ready Markdown studio crafted for technical writing, essays, research notes, and publication-grade documents on macOS and Linux.
 
 > [!TIP]
-> Try switching between **Raw**, **Split**, and **Preview** views in the top bar — or toggle **Page Mode** to inspect your document laid out across US Letter, Legal, or A4 paper sheets with custom margins, headers, and page numbers.
+> Try switching between **Raw**, **Split**, and **Preview** views in the top bar — or open **Preview Settings** to switch between **Open Canvas** and **Page** layouts (US Letter, Legal, A4, custom margins), toggle **Serif / Sans-Serif** fonts, and customize heading dividers.
 
 ---
 
@@ -89,8 +89,8 @@ Letra safely renders semantic Markdown HTML including collapsible sections, keyb
   </p>
 </details>
 
-> [!NOTE] Importing Assets
-> Drag and drop any image, SVG, audio, or video directly onto the editor — or paste a screenshot from your clipboard. By default Letra saves assets neatly into a local \`./assets/\` folder beside your Markdown file, with an instant toggle to embed as base64 when you want a single portable file.
+> [!NOTE] Portable \`.letra\` Packages & Assets
+> Drag and drop any image, SVG, audio, or video directly onto the editor — or paste a screenshot from your clipboard. Save as plain \`.md\` (with a local \`./assets/\` folder) or save as a self-contained **\`.letra\`** archive to bundle your Markdown and assets into a single shippable file.
 
 <p style="text-align: center; opacity: 0.72; margin-top: 2rem;">
   Crafted with <mark>Letra</mark> — start editing anywhere to make this document yours.

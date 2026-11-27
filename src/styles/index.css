@@ -126,21 +126,34 @@ body,
   color: #181a20;
 }
 
-.letra-typo-editorial {
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+.letra-typo-serif {
+  font-family: "Iowan Old Style", "Charter", Georgia, "Times New Roman", serif;
 }
-.letra-typo-editorial h1,
-.letra-typo-editorial h2,
-.letra-typo-editorial h3 {
+.letra-typo-serif h1,
+.letra-typo-serif h2,
+.letra-typo-serif h3,
+.letra-typo-serif h4,
+.letra-typo-serif h5,
+.letra-typo-serif h6 {
   font-family: "Iowan Old Style", "Charter", Georgia, "Times New Roman", serif;
 }
 
 .letra-typo-sans {
   font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
 }
+.letra-typo-sans h1,
+.letra-typo-sans h2,
+.letra-typo-sans h3,
+.letra-typo-sans h4,
+.letra-typo-sans h5,
+.letra-typo-sans h6 {
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+}
 
-.letra-typo-serif {
-  font-family: "Iowan Old Style", "Charter", Georgia, "Times New Roman", serif;
+.letra-prose.letra-no-heading-dividers h1,
+.letra-prose.letra-no-heading-dividers h2 {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
 .letra-prose > :first-child {

@@ -104,7 +104,8 @@ export const DEFAULT_PAGE_SETTINGS: PageSettings = {
   },
   differentFirstPage: true,
   zoom: 'fit-width',
-  typography: 'editorial',
+  typography: 'serif',
+  headingDividers: true,
   fontSizePx: 14.5,
 };
 

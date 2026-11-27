@@ -12,6 +12,7 @@ import remarkRehype from 'remark-rehype';
 import { unified } from 'unified';
 import { visit } from 'unist-util-visit';
 import type { TocHeading } from '../../shared/types';
+import { isLetraArchivePath } from '../../shared/types';
 
 export interface RenderedDocument {
   html: string;
@@ -241,9 +242,12 @@ export function renderMarkdown(
   const frontmatterTitle = extractFrontmatterTitle(source);
   const normalized = normalizeExtendedSyntax(source);
 
-  const baseDir = options?.documentPath
-    ? dirnamePosixOrWin(options.documentPath)
-    : options?.stagedAssetDir || null;
+  const isArchive = isLetraArchivePath(options?.documentPath);
+  const baseDir = isArchive
+    ? options?.stagedAssetDir || null
+    : options?.documentPath
+      ? dirnamePosixOrWin(options.documentPath)
+      : options?.stagedAssetDir || null;
 
   const processor = unified()
     .use(remarkParse)

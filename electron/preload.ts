@@ -31,6 +31,7 @@ const api: LetraBridge = {
   readFile: (filePath) => ipcRenderer.invoke('fs:read-file', filePath),
   saveFile: (params) => ipcRenderer.invoke('fs:save-file', params),
   saveFileAs: (params) => ipcRenderer.invoke('fs:save-file-as', params),
+  releaseArchiveSession: (stagedAssetDir) => ipcRenderer.invoke('fs:release-archive-session', stagedAssetDir),
 
   openFolderDialog: () => ipcRenderer.invoke('dialog:open-folder'),
   readFolderTree: (folderPath) => ipcRenderer.invoke('fs:read-folder-tree', folderPath),

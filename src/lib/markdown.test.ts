@@ -63,5 +63,16 @@ title: Spec Sheet
     const res = renderMarkdown(md, { documentPath: '/Users/demo/docs/report.md' });
     expect(res.html).toContain('letra-asset://local?');
     expect(res.html).toContain(encodeURIComponent('./assets/chart.png'));
+    expect(res.html).toContain(encodeURIComponent('/Users/demo/docs'));
+  });
+
+  it('resolves .letra archive relative assets against stagedAssetDir instead of archive directory', () => {
+    const md = `![Diagram](./assets/diagram.png)`;
+    const res = renderMarkdown(md, {
+      documentPath: '/Users/demo/docs/report.letra',
+      stagedAssetDir: '/tmp/letra-bundles/session-123',
+    });
+    expect(res.html).toContain('letra-asset://local?');
+    expect(res.html).toContain(encodeURIComponent('/tmp/letra-bundles/session-123'));
   });
 });
